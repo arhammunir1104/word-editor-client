@@ -11,8 +11,9 @@ const App = () => {
     <EditorProvider>
       <Routes>
         {/* <Switch> */}
-          <Route exact path="/" element={<Home />} />
-          <Route path="/editor" element={<Editor />} />
+          {/* <Route exact path="/" element={<Home />} />
+          <Route path="/editor" element={<Editor />} /> */}
+          <Route path="/" element={<Editor />} />
         {/* </Switch> */}
       </Routes>
     </EditorProvider>
