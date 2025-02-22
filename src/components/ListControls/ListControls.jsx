@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Box, IconButton, Tooltip, Menu, MenuItem } from '@mui/material';
 import {
   FormatListBulleted,
@@ -8,18 +8,42 @@ import {
 } from '@mui/icons-material';
 import { useEditorHistory } from '../../context/EditorHistoryContext';
 
+// Define bullet styles that repeat every 3 levels
+const BULLET_LEVELS = {
+  1: 'disc',      // ●
+  2: 'circle',    // ○
+  3: 'square',    // ■
+  4: 'disc',      // Back to ●
+  5: 'circle',    // Back to ○
+  6: 'square',    // Back to ■
+  // Pattern continues...
+};
+
+// Define number styles that repeat every 3 levels
+const NUMBER_LEVELS = {
+  1: 'decimal',      // 1, 2, 3
+  2: 'lower-alpha',  // a, b, c
+  3: 'lower-roman',  // i, ii, iii
+  4: 'decimal',      // Back to 1, 2, 3
+  5: 'lower-alpha',  // Back to a, b, c
+  6: 'lower-roman',  // Back to i, ii, iii
+  // Pattern continues...
+};
+
+// Define bullet styles for toolbar menu
 const bulletStyles = [
-  { name: 'Default', value: 'disc' },
-  { name: 'Circle', value: 'circle' },
-  { name: 'Square', value: 'square' },
+  { name: 'Disc (●)', value: 'disc' },
+  { name: 'Circle (○)', value: 'circle' },
+  { name: 'Square (■)', value: 'square' },
 ];
 
+// Define number styles for toolbar menu
 const numberStyles = [
-  { name: 'Default (1, 2, 3)', value: 'decimal' },
-  { name: 'Roman (I, II, III)', value: 'upper-roman' },
-  { name: 'roman (i, ii, iii)', value: 'lower-roman' },
-  { name: 'Letters (A, B, C)', value: 'upper-alpha' },
-  { name: 'letters (a, b, c)', value: 'lower-alpha' },
+  { name: 'Numbers (1, 2, 3)', value: 'decimal' },
+  { name: 'Letters (a, b, c)', value: 'lower-alpha' },
+  { name: 'Roman (i, ii, iii)', value: 'lower-roman' },
+  { name: 'Capital Letters (A, B, C)', value: 'upper-alpha' },
+  { name: 'Capital Roman (I, II, III)', value: 'upper-roman' },
 ];
 
 const ListControls = () => {
@@ -27,27 +51,272 @@ const ListControls = () => {
   const [bulletAnchorEl, setBulletAnchorEl] = useState(null);
   const [numberAnchorEl, setNumberAnchorEl] = useState(null);
 
-  const handleBulletStyle = (style) => {
-    try {
-      const selection = window.getSelection();
-      const range = selection.getRangeAt(0);
-      const content = range.commonAncestorContainer;
-      
-      // Check if we're already in a list
-      const existingList = content.closest ? content.closest('ul') : content.parentElement.closest('ul');
-      
-      if (existingList) {
-        existingList.style.listStyleType = style;
-      } else {
-        document.execCommand('insertUnorderedList', false, null);
-        const newList = selection.anchorNode.closest('ul');
-        if (newList) {
-          newList.style.listStyleType = style;
+  const getListLevel = (element) => {
+    let level = 1;
+    let parent = element.parentElement;
+    while (parent) {
+      if (parent.tagName === 'UL' || parent.tagName === 'OL') {
+        if (parent.parentElement.closest('li')) {
+          level++;
         }
       }
+      parent = parent.parentElement;
+    }
+    return level;
+  };
+
+  const updateListStyles = (listItem) => {
+    const list = listItem.closest('ul, ol');
+    if (!list) return;
+
+    const level = getListLevel(list);
+    const normalizedLevel = ((level - 1) % 3) + 1;
+
+    if (list.tagName === 'UL') {
+      list.style.listStyleType = BULLET_LEVELS[normalizedLevel];
+    } else {
+      list.style.listStyleType = NUMBER_LEVELS[normalizedLevel];
+    }
+  };
+
+  const getListItem = (node) => {
+    if (!node) return null;
+    
+    // If node is text node, get its parent
+    if (node.nodeType === 3) {
+      node = node.parentElement;
+    }
+    
+    // Find closest li element
+    while (node && node.tagName !== 'LI') {
+      node = node.parentElement;
+    }
+    
+    return node;
+  };
+
+  const handleEmptyListItem = (listItem, action) => {
+    try {
+      if (!listItem || !listItem.parentNode) return;
       
-      // Save history after the DOM has been updated
-      setTimeout(() => saveHistory(ActionTypes.STRUCTURE), 0);
+      const selection = window.getSelection();
+      const parentList = listItem.closest('ul, ol');
+      
+      if (!parentList || !parentList.parentNode) return;
+      
+      const hitCount = parseInt(listItem.dataset.emptyHitCount || '0');
+      listItem.dataset.emptyHitCount = (hitCount + 1).toString();
+      
+      if (hitCount === 0) {
+        // First press: Just remove bullet
+        const textNode = document.createElement('div');
+        textNode.innerHTML = '<br>';
+        
+        if (listItem.parentNode) {
+          listItem.parentNode.insertBefore(textNode, listItem);
+          if (listItem.parentNode.contains(listItem)) {
+            listItem.parentNode.removeChild(listItem);
+          }
+        }
+        
+        const range = document.createRange();
+        range.setStart(textNode, 0);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } 
+      else if (hitCount === 1) {
+        // Second press: Move up one level
+        const parentLI = parentList?.parentElement?.closest('li');
+        if (parentLI && parentLI.parentNode) {
+          const grandparentList = parentLI.closest('ul, ol');
+          if (grandparentList) {
+            const textNode = document.createElement('div');
+            textNode.innerHTML = '<br>';
+            grandparentList.insertBefore(textNode, parentLI.nextSibling);
+            
+            if (listItem.parentNode.contains(listItem)) {
+              listItem.parentNode.removeChild(listItem);
+            }
+            
+            const range = document.createRange();
+            range.setStart(textNode, 0);
+            range.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(range);
+          }
+        }
+      }
+      else {
+        // Third press: Move to previous item
+        const prevItem = listItem.previousElementSibling || parentList?.parentElement?.closest('li');
+        if (prevItem) {
+          const range = document.createRange();
+          range.selectNodeContents(prevItem);
+          range.collapse(false);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          
+          if (listItem.parentNode.contains(listItem)) {
+            listItem.parentNode.removeChild(listItem);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error in handleEmptyListItem:', error);
+    }
+  };
+
+  const handleIndent = (direction) => {
+    try {
+      const selection = window.getSelection();
+      if (!selection.rangeCount) return;
+
+      const listItem = getListItem(selection.anchorNode);
+      if (!listItem) return;
+
+      // Save state for undo/redo
+      saveHistory(ActionTypes.STRUCTURE);
+
+      if (direction === 'increase') {
+        // Can only indent if there's a previous sibling
+        const prevSibling = listItem.previousElementSibling;
+        if (!prevSibling) return;
+
+        const currentList = listItem.parentElement;
+        if (!currentList) return;
+
+        // Find or create nested list in previous sibling
+        let nestedList = Array.from(prevSibling.children)
+          .find(child => child.tagName === currentList.tagName);
+
+        if (!nestedList) {
+          nestedList = document.createElement(currentList.tagName);
+          nestedList.style.listStyleType = currentList.style.listStyleType;
+          prevSibling.appendChild(nestedList);
+        }
+
+        // Move the item
+        nestedList.appendChild(listItem);
+
+        // Update styles
+        if (nestedList.tagName === 'UL') {
+          const level = getListLevel(nestedList);
+          const style = BULLET_LEVELS[((level - 1) % 3) + 1];
+          nestedList.style.listStyleType = style;
+        } else {
+          const level = getListLevel(nestedList);
+          const style = NUMBER_LEVELS[((level - 1) % 3) + 1];
+          nestedList.style.listStyleType = style;
+        }
+
+        // Clean up empty lists
+        if (currentList.children.length === 0) {
+          currentList.remove();
+        }
+
+        // Maintain selection
+        const range = document.createRange();
+        range.selectNodeContents(listItem);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } else {
+        // Decrease indent
+        const parentList = listItem.parentElement;
+        if (!parentList) return;
+
+        const parentItem = parentList.parentElement;
+        if (!parentItem || !parentItem.tagName === 'LI') return;
+
+        const grandparentList = parentItem.parentElement;
+        if (!grandparentList) return;
+
+        // Move item after its parent item
+        grandparentList.insertBefore(listItem, parentItem.nextSibling);
+
+        // Update styles
+        if (grandparentList.tagName === 'UL') {
+          const level = getListLevel(grandparentList);
+          const style = BULLET_LEVELS[((level - 1) % 3) + 1];
+          listItem.style.listStyleType = style;
+        } else {
+          const level = getListLevel(grandparentList);
+          const style = NUMBER_LEVELS[((level - 1) % 3) + 1];
+          listItem.style.listStyleType = style;
+        }
+
+        // Clean up empty lists
+        if (parentList.children.length === 0) {
+          parentList.remove();
+        }
+
+        // Maintain selection
+        const range = document.createRange();
+        range.selectNodeContents(listItem);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+    } catch (error) {
+      console.error('Indentation failed:', error);
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyboardEvents = (e) => {
+      const selection = window.getSelection();
+      if (!selection.rangeCount) return;
+
+      const listItem = getListItem(selection.anchorNode);
+      if (!listItem) return;
+
+      // Handle Tab for indentation
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        if (e.shiftKey) {
+          handleIndent('decrease');
+        } else {
+          handleIndent('increase');
+        }
+      }
+
+      // Handle Backspace/Enter
+      if ((e.key === 'Enter' || e.key === 'Backspace') && !e.shiftKey) {
+        const isEmpty = !listItem.textContent.trim();
+        const isAtStart = selection.anchorOffset === 0;
+        
+        if (isEmpty || (e.key === 'Backspace' && isAtStart)) {
+          e.preventDefault();
+          saveHistory(ActionTypes.STRUCTURE);
+          handleEmptyListItem(listItem, e.key);
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyboardEvents, true);
+    return () => document.removeEventListener('keydown', handleKeyboardEvents, true);
+  }, [saveHistory]);
+
+  const handleBulletStyle = (style) => {
+    try {
+      saveHistory(ActionTypes.STRUCTURE);
+      
+      const selection = window.getSelection();
+      const range = selection.getRangeAt(0);
+      
+      document.execCommand('insertUnorderedList');
+      
+      // Apply selected bullet style
+      const listItem = selection.anchorNode.closest('li');
+      if (listItem) {
+        const list = listItem.closest('ul');
+        if (list) {
+          list.style.listStyleType = style || 'disc';
+        }
+      }
     } catch (error) {
       console.error('Bullet style change failed:', error);
     }
@@ -56,148 +325,30 @@ const ListControls = () => {
 
   const handleNumberedList = (style) => {
     try {
+      saveHistory(ActionTypes.STRUCTURE);
+      
       const selection = window.getSelection();
       const range = selection.getRangeAt(0);
-      const content = range.commonAncestorContainer;
       
-      // Check if we're already in a list
-      const existingList = content.closest ? content.closest('ol') : content.parentElement.closest('ol');
+      document.execCommand('insertOrderedList');
       
-      if (existingList) {
-        existingList.style.listStyleType = style;
-      } else {
-        document.execCommand('insertOrderedList', false, null);
-        const newList = selection.anchorNode.closest('ol');
-        if (newList) {
-          newList.style.listStyleType = style;
+      // Apply selected number style
+      const listItem = selection.anchorNode.closest('li');
+      if (listItem) {
+        const list = listItem.closest('ol');
+        if (list) {
+          list.style.listStyleType = style || 'decimal';
         }
       }
-      
-      // Save history after the DOM has been updated
-      setTimeout(() => saveHistory(ActionTypes.STRUCTURE), 0);
     } catch (error) {
-      console.error('Numbered list style change failed:', error);
+      console.error('Number style change failed:', error);
     }
     setNumberAnchorEl(null);
   };
 
-  const handleIndent = (direction) => {
-    try {
-      document.execCommand(direction === 'increase' ? 'indent' : 'outdent', false, null);
-      // Save history after the DOM has been updated
-      setTimeout(() => saveHistory(ActionTypes.STRUCTURE), 0);
-    } catch (error) {
-      console.error('Indentation failed:', error);
-    }
-  };
-
-  React.useEffect(() => {
-    const handleKeyDown = (e) => {
-      const selection = window.getSelection();
-      const listItem = selection.anchorNode?.closest('li');
-      
-      if (listItem) {
-        // Handle Tab key for indentation
-        if (e.key === 'Tab') {
-          e.preventDefault();
-          handleIndent(e.shiftKey ? 'decrease' : 'increase');
-        }
-        
-        // Handle Backspace key
-        if (e.key === 'Backspace') {
-          const isAtStart = selection.anchorOffset === 0;
-          const isTextNode = selection.anchorNode.nodeType === 3;
-          const isEmpty = !listItem.textContent.trim();
-          
-          // Check if cursor is at the start of the list item
-          if (isAtStart || (!isTextNode && isEmpty)) {
-            e.preventDefault();
-            
-            const list = listItem.closest('ul, ol');
-            const isNested = !!listItem.parentElement.closest('li');
-            const currentIndent = parseInt(listItem.style.marginLeft || '0', 10);
-            
-            if (isNested || currentIndent > 0) {
-              // If nested or indented, just outdent first
-              document.execCommand('outdent', false, null);
-            } else {
-              // Convert list item to paragraph while preserving content and position
-              const content = listItem.innerHTML;
-              const newP = document.createElement('p');
-              newP.innerHTML = content;
-              
-              // Preserve any existing styles
-              const computedStyle = window.getComputedStyle(listItem);
-              newP.style.marginLeft = computedStyle.marginLeft;
-              newP.style.textAlign = computedStyle.textAlign;
-              
-              // Replace the list item with the paragraph
-              if (list.children.length === 1) {
-                // If it's the last item, remove the entire list
-                list.parentNode.replaceChild(newP, list);
-              } else {
-                listItem.parentNode.replaceChild(newP, listItem);
-              }
-              
-              // Restore cursor position
-              const range = document.createRange();
-              range.setStart(newP, 0);
-              range.collapse(true);
-              selection.removeAllRanges();
-              selection.addRange(range);
-            }
-            
-            // Save the history after DOM updates
-            setTimeout(() => saveHistory(ActionTypes.STRUCTURE), 0);
-          }
-        }
-        
-        // Handle Enter key
-        if (e.key === 'Enter' && !e.shiftKey) {
-          const isEmpty = !listItem.textContent.trim();
-          
-          if (isEmpty) {
-            e.preventDefault();
-            
-            const list = listItem.closest('ul, ol');
-            const isNested = !!listItem.parentElement.closest('li');
-            
-            if (isNested) {
-              // If nested, outdent first
-              document.execCommand('outdent', false, null);
-            } else {
-              // Convert to paragraph and exit list
-              const newP = document.createElement('p');
-              newP.innerHTML = '<br>';
-              
-              if (list.children.length === 1) {
-                list.parentNode.replaceChild(newP, list);
-              } else {
-                listItem.parentNode.removeChild(listItem);
-                list.parentNode.insertBefore(newP, list.nextSibling);
-              }
-              
-              // Set cursor in new paragraph
-              const range = document.createRange();
-              range.setStart(newP, 0);
-              range.collapse(true);
-              selection.removeAllRanges();
-              selection.addRange(range);
-            }
-            
-            setTimeout(() => saveHistory(ActionTypes.STRUCTURE), 0);
-          }
-        }
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [saveHistory]);
-
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: '1px' }}>
-      <Tooltip title="Bullet list styles">
+      <Tooltip title="Bullet list">
         <IconButton
           size="small"
           sx={{ padding: '4px' }}
@@ -207,30 +358,7 @@ const ListControls = () => {
         </IconButton>
       </Tooltip>
 
-      <Menu
-        anchorEl={bulletAnchorEl}
-        open={Boolean(bulletAnchorEl)}
-        onClose={() => setBulletAnchorEl(null)}
-      >
-        {bulletStyles.map((style) => (
-          <MenuItem
-            key={style.value}
-            onClick={() => handleBulletStyle(style.value)}
-            sx={{
-              fontSize: '14px',
-              minHeight: '32px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1,
-            }}
-          >
-            <span style={{ listStyleType: style.value }}>●</span>
-            {style.name}
-          </MenuItem>
-        ))}
-      </Menu>
-
-      <Tooltip title="Numbered list styles">
+      <Tooltip title="Numbered list">
         <IconButton
           size="small"
           sx={{ padding: '4px' }}
@@ -239,25 +367,6 @@ const ListControls = () => {
           <FormatListNumbered sx={{ fontSize: '18px' }} />
         </IconButton>
       </Tooltip>
-
-      <Menu
-        anchorEl={numberAnchorEl}
-        open={Boolean(numberAnchorEl)}
-        onClose={() => setNumberAnchorEl(null)}
-      >
-        {numberStyles.map((style) => (
-          <MenuItem
-            key={style.value}
-            onClick={() => handleNumberedList(style.value)}
-            sx={{
-              fontSize: '14px',
-              minHeight: '32px',
-            }}
-          >
-            {style.name}
-          </MenuItem>
-        ))}
-      </Menu>
 
       <Tooltip title="Decrease indent">
         <IconButton
@@ -278,6 +387,38 @@ const ListControls = () => {
           <FormatIndentIncrease sx={{ fontSize: '18px' }} />
         </IconButton>
       </Tooltip>
+
+      {/* Bullet styles menu */}
+      <Menu
+        anchorEl={bulletAnchorEl}
+        open={Boolean(bulletAnchorEl)}
+        onClose={() => setBulletAnchorEl(null)}
+      >
+        {bulletStyles.map((style) => (
+          <MenuItem
+            key={style.value}
+            onClick={() => handleBulletStyle(style.value)}
+          >
+            {style.name}
+          </MenuItem>
+        ))}
+      </Menu>
+
+      {/* Number styles menu */}
+      <Menu
+        anchorEl={numberAnchorEl}
+        open={Boolean(numberAnchorEl)}
+        onClose={() => setNumberAnchorEl(null)}
+      >
+        {numberStyles.map((style) => (
+          <MenuItem
+            key={style.value}
+            onClick={() => handleNumberedList(style.value)}
+          >
+            {style.name}
+          </MenuItem>
+        ))}
+      </Menu>
     </Box>
   );
 };

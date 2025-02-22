@@ -1,5 +1,5 @@
 import React, { useContext, useState, useRef, useEffect } from 'react';
-import { Box, IconButton, Select, MenuItem, Tooltip, Divider, Typography } from '@mui/material';
+import { Box, IconButton, Select, MenuItem, Tooltip, Divider, Typography, FormControlLabel, Switch } from '@mui/material';
 import {
   FormatBold,
   FormatItalic,
@@ -23,7 +23,9 @@ import {
   SpellcheckOutlined,
   FormatColorText,
   FormatColorFill,
-  Remove
+  Remove,
+  ViewHeadline as HeaderIcon,
+  ViewStream as FooterIcon,
 } from '@mui/icons-material';
 import {useEditor}  from '../../context/EditorContext';
 import SearchReplace from '../SearchReplace/SearchReplace';
@@ -34,18 +36,27 @@ import ListControls from '../ListControls/ListControls';
 import AlignmentControls from '../AlignmentControls/AlignmentControls';
 
 const EditorToolbar = () => {
-  const { editorState, toggleFormat } = useEditor();
+  const { 
+    editorState, 
+    toggleFormat, 
+    changeFontSize, 
+    changeFontFamily,
+    changeFontColor,
+    changeBackgroundColor 
+  } = useEditor();
   const [searchAnchorEl, setSearchAnchorEl] = useState(null);
   const [fontColorAnchorEl, setFontColorAnchorEl] = useState(null);
   const [highlightColorAnchorEl, setHighlightColorAnchorEl] = useState(null);
   const [isScrollable, setIsScrollable] = useState(false);
-  const [selectedFont, setSelectedFont] = useState('Arial');
-  const [fontSize, setFontSize] = useState(11);
   const [recentColors, setRecentColors] = useState([]);
   const toolbarRef = useRef(null);
   const { undo, redo, saveHistory } = useEditorHistory();
 
-  const fontSizeOptions = [8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72, 96];
+  // MS Word standard font sizes in points (pt)
+  const fontSizeOptions = [8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72, 96].map(size => ({
+    value: size,
+    label: size.toString()
+  }));
 
   useEffect(() => {
     const checkScrollable = () => {
@@ -72,51 +83,24 @@ const EditorToolbar = () => {
   };
 
   const handleFontColorSelect = (color) => {
-    document.execCommand('foreColor', false, color);
-    setRecentColors(prev => [color, ...prev.slice(0, 9)]);
+    changeFontColor(color);
+    setFontColorAnchorEl(null);
   };
 
   const handleHighlightColorSelect = (color) => {
-    document.execCommand('hiliteColor', false, color);
-    setRecentColors(prev => [color, ...prev.slice(0, 9)]);
+    changeBackgroundColor(color);
+    setHighlightColorAnchorEl(null);
+  };
+
+  const handleFontSizeChange = (event) => {
+    const newSize = parseInt(event.target.value, 10);
+    if (!isNaN(newSize)) {
+      changeFontSize(newSize);
+    }
   };
 
   const handleFontChange = (event) => {
-    setSelectedFont(event.target.value);
-    document.execCommand('fontName', false, event.target.value);
-  };
-
-  const handleFontSizeChange = (increment) => {
-    const newSize = Math.min(Math.max(8, fontSize + increment), 96);
-    
-    const selection = window.getSelection();
-    if (selection.rangeCount > 0) {
-      const content = document.querySelector('[contenteditable="true"]');
-      if (content) {
-        // Save current state before changes
-        const currentContent = content.innerHTML;
-        
-        try {
-          // Set font size
-          setFontSize(newSize);
-          document.execCommand('fontSize', false, '7');
-          
-          // Convert size to pixels
-          const fontElements = document.getElementsByTagName('font');
-          Array.from(fontElements).forEach(element => {
-            if (element.hasAttribute('size')) {
-              element.removeAttribute('size');
-              element.style.fontSize = `${newSize}px`;
-            }
-          });
-          
-          // Save to history
-          saveHistory(currentContent);
-        } catch (error) {
-          console.error('Font size change failed:', error);
-        }
-      }
-    }
+    changeFontFamily(event.target.value);
   };
 
   const handleUndo = (e) => {
@@ -172,6 +156,239 @@ const EditorToolbar = () => {
       return () => observer.disconnect();
     }
   }, []);
+
+  const handleHeaderClick = () => {
+    // Implement header edit logic
+  };
+
+  const handleFooterClick = () => {
+    // Implement footer edit logic
+  };
+
+  const handlePrint = () => {
+    const printWindow = window.open('', '_blank');
+    
+    // Enhanced print styles to maintain exact layout
+    const printStyles = `
+      @page {
+        size: A4;
+        margin: 0;
+      }
+      
+      * {
+        box-sizing: border-box;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      
+      body {
+        margin: 0;
+        padding: 0;
+        background: white;
+      }
+      
+      .print-page {
+        width: 210mm;
+        min-height: 297mm;
+        padding: 0;
+        margin: 0 auto;
+        background: white;
+        position: relative;
+        page-break-after: always;
+      }
+      
+      .print-page:last-child {
+        page-break-after: auto;
+      }
+      
+      .header-content {
+        position: absolute;
+        top: 20mm;
+        left: 25mm;
+        right: 25mm;
+        min-height: 15mm;
+      }
+      
+      .page-content {
+        position: absolute;
+        top: 35mm;
+        left: 25mm;
+        right: 25mm;
+        min-height: 222mm; /* Adjusted to maintain content space */
+        word-wrap: break-word;
+        overflow: hidden;
+      }
+      
+      .footer-content {
+        position: absolute;
+        bottom: 20mm;
+        left: 25mm;
+        right: 25mm;
+        min-height: 15mm;
+      }
+      
+      /* Preserve all styles from the editor */
+      .page-content *,
+      .header-content *,
+      .footer-content * {
+        font-family: inherit;
+        font-size: inherit;
+        color: inherit;
+        background-color: inherit;
+        margin: inherit;
+        padding: inherit;
+        line-height: inherit;
+        text-align: inherit;
+      }
+
+      /* Preserve specific formatting */
+      strong { font-weight: bold; }
+      em { font-style: italic; }
+      u { text-decoration: underline; }
+      
+      /* Handle lists properly */
+      ul, ol {
+        margin: 1em 0;
+        padding-left: 40px;
+      }
+      
+      /* Preserve table formatting */
+      table {
+        border-collapse: collapse;
+        width: 100%;
+      }
+      
+      td, th {
+        border: inherit;
+        padding: inherit;
+      }
+
+      @media print {
+        body {
+          padding: 0;
+          margin: 0;
+        }
+        
+        .print-page {
+          box-shadow: none;
+        }
+        
+        /* Force background printing */
+        * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+      }
+    `;
+
+    // Get all content areas with computed styles
+    const contentPages = document.querySelectorAll('[data-content-area="true"]');
+    const headerElements = document.querySelectorAll('[data-header-area="true"]');
+    const footerElements = document.querySelectorAll('[data-footer-area="true"]');
+
+    // Helper function to preserve computed styles
+    const getComputedStylesHTML = (element) => {
+      if (!element) return '';
+      
+      // Clone the element to avoid modifying the original
+      const clone = element.cloneNode(true);
+      
+      // Preserve computed styles on the element and its children
+      const preserveStyles = (node) => {
+        if (node.nodeType === 1) { // Element node
+          const computedStyle = window.getComputedStyle(node);
+          const styles = {
+            'font-family': computedStyle.fontFamily,
+            'font-size': computedStyle.fontSize,
+            'font-weight': computedStyle.fontWeight,
+            'font-style': computedStyle.fontStyle,
+            'color': computedStyle.color,
+            'background-color': computedStyle.backgroundColor,
+            'text-align': computedStyle.textAlign,
+            'text-decoration': computedStyle.textDecoration,
+            'line-height': computedStyle.lineHeight,
+            'padding': computedStyle.padding,
+            'margin': computedStyle.margin,
+            'border': computedStyle.border
+          };
+          
+          let styleString = '';
+          for (const [property, value] of Object.entries(styles)) {
+            if (value && value !== 'initial') {
+              styleString += `${property}:${value};`;
+            }
+          }
+          
+          if (styleString) {
+            node.setAttribute('style', (node.getAttribute('style') || '') + styleString);
+          }
+        }
+        
+        Array.from(node.childNodes).forEach(preserveStyles);
+      };
+      
+      preserveStyles(clone);
+      return clone.innerHTML;
+    };
+
+    // Create HTML content for printing with preserved styles
+    const printContent = Array.from(contentPages).map((page, index) => `
+      <div class="print-page">
+        <div class="header-content">
+          ${getComputedStylesHTML(headerElements[index])}
+        </div>
+        <div class="page-content">
+          ${getComputedStylesHTML(page)}
+        </div>
+        <div class="footer-content">
+          ${getComputedStylesHTML(footerElements[index])}
+        </div>
+      </div>
+    `).join('');
+
+    // Write to the new window with preserved styles
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Print Document</title>
+          <meta charset="utf-8">
+          <style>${printStyles}</style>
+        </head>
+        <body>
+          ${printContent}
+        </body>
+      </html>
+    `);
+
+    // Wait for content and styles to load
+    printWindow.document.close();
+    
+    printWindow.onload = () => {
+      // Small delay to ensure styles are applied
+      setTimeout(() => {
+        printWindow.focus();
+        
+        // Track both print completion and cancellation
+        let printed = false;
+        
+        printWindow.onafterprint = () => {
+          printed = true;
+          printWindow.close();
+        };
+
+        // Close window if print was cancelled
+        printWindow.print();
+        
+        // Check if print was cancelled
+        setTimeout(() => {
+          if (!printed) {
+            printWindow.close();
+          }
+        }, 500);
+      }, 250);
+    };
+  };
 
   return (
     <Box sx={{
@@ -261,7 +478,7 @@ const EditorToolbar = () => {
 
         {/* Print */}
         <Tooltip title="Print" enterDelay={300}>
-          <IconButton size="small" onClick={() => window.print()}>
+          <IconButton size="small" onClick={handlePrint}>
             <Print sx={{ fontSize: 20 }} />
           </IconButton>
         </Tooltip>
@@ -275,7 +492,7 @@ const EditorToolbar = () => {
           flexGrow: 0,
         }}> 
           <Select
-            value={selectedFont}
+            value={editorState.fontFamily}
             onChange={handleFontChange}
             size="small"
             sx={{
@@ -288,35 +505,24 @@ const EditorToolbar = () => {
                 overflow: 'hidden',
                 whiteSpace: 'nowrap',
                 width: '130px !important',
-              },
-              '& .MuiOutlinedInput-notchedOutline': {
-                width: '120px !important'
-              },
-              '& .MuiSelect-icon': {
-                right: '2px'
-              }
-            }}
-            MenuProps={{
-              PaperProps: {
-                sx: { width: '140px !important' }
               }
             }}
           >
-            <MenuItem sx={{fontSize : "13px"}} value="Arial">Arial</MenuItem>
-            <MenuItem sx={{fontSize : "13px"}} value="Times New Roman">Times New Roman</MenuItem>
-            <MenuItem sx={{fontSize : "13px"}} value="Courier New">Courier New</MenuItem>
-            <MenuItem sx={{fontSize : "13px"}} value="Helvetica">Helvetica</MenuItem>
-            <MenuItem sx={{fontSize : "13px"}} value="Verdana">Verdana</MenuItem>
-            <MenuItem sx={{fontSize : "13px"}} value="Georgia">Georgia</MenuItem>
-            <MenuItem sx={{fontSize : "13px"}} value="Palatino">Palatino</MenuItem>
-            <MenuItem sx={{fontSize : "13px"}} value="Garamond">Garamond</MenuItem>
-            <MenuItem sx={{fontSize : "13px"}} value="Bookman">Bookman</MenuItem>
-            <MenuItem sx={{fontSize : "13px"}} value="Comic Sans MS">Comic Sans MS</MenuItem>
-            <MenuItem sx={{fontSize : "13px"}} value="Trebuchet MS">Trebuchet MS</MenuItem>
-            <MenuItem sx={{fontSize : "13px"}} value="Arial Black">Arial Black</MenuItem>
-            <MenuItem sx={{fontSize : "13px"}} value="Impact">Impact</MenuItem>
-            <MenuItem sx={{fontSize : "13px"}} value="Lucida Sans">Lucida Sans</MenuItem>
-            <MenuItem sx={{fontSize : "13px"}} value="Tahoma">Tahoma</MenuItem>
+            <MenuItem value="Arial">Arial</MenuItem>
+            <MenuItem value="Times New Roman">Times New Roman</MenuItem>
+            <MenuItem value="Courier New">Courier New</MenuItem>
+            <MenuItem value="Helvetica">Helvetica</MenuItem>
+            <MenuItem value="Verdana">Verdana</MenuItem>
+            <MenuItem value="Georgia">Georgia</MenuItem>
+            <MenuItem value="Palatino">Palatino</MenuItem>
+            <MenuItem value="Garamond">Garamond</MenuItem>
+            <MenuItem value="Bookman">Bookman</MenuItem>
+            <MenuItem value="Comic Sans MS">Comic Sans MS</MenuItem>
+            <MenuItem value="Trebuchet MS">Trebuchet MS</MenuItem>
+            <MenuItem value="Arial Black">Arial Black</MenuItem>
+            <MenuItem value="Impact">Impact</MenuItem>
+            <MenuItem value="Lucida Sans">Lucida Sans</MenuItem>
+            <MenuItem value="Tahoma">Tahoma</MenuItem>
           </Select>
         </Box>
 
@@ -330,34 +536,8 @@ const EditorToolbar = () => {
           width: '65px'
         }}>
           <Select
-            value={fontSize}
-            onChange={(event) => {
-              const newSize = event.target.value;
-              setFontSize(newSize);
-              
-              const selection = window.getSelection();
-              if (selection.rangeCount > 0) {
-                const content = document.querySelector('[contenteditable="true"]');
-                if (content) {
-                  const currentContent = content.innerHTML;
-                  
-                  try {
-                    document.execCommand('fontSize', false, '7');
-                    const fontElements = document.getElementsByTagName('font');
-                    Array.from(fontElements).forEach(element => {
-                      if (element.hasAttribute('size')) {
-                        element.removeAttribute('size');
-                        element.style.fontSize = `${newSize}px`;
-                      }
-                    });
-                    
-                    saveHistory(currentContent);
-                  } catch (error) {
-                    console.error('Font size change failed:', error);
-                  }
-                }
-              }
-            }}
+            value={editorState.fontSize}
+            onChange={handleFontSizeChange}
             size="small"
             sx={{
               height: '28px',
@@ -365,27 +545,12 @@ const EditorToolbar = () => {
               '& .MuiSelect-select': {
                 padding: '2px 8px',
                 paddingRight: '24px !important',
-              },
-              '& .MuiSelect-icon': {
-                right: '2px'
-              }
-            }}
-            MenuProps={{
-              PaperProps: {
-                sx: { 
-                  maxHeight: '300px',
-                  '& .MuiMenuItem-root': {
-                    fontSize: '13px',
-                    minHeight: '24px',
-                    padding: '4px 8px'
-                  }
-                }
               }
             }}
           >
-            {fontSizeOptions.map((size) => (
-              <MenuItem key={size} value={size}>
-                {size}
+            {fontSizeOptions.map(({ value, label }) => (
+              <MenuItem key={value} value={value}>
+                {label}
               </MenuItem>
             ))}
           </Select>
@@ -394,19 +559,33 @@ const EditorToolbar = () => {
         <Divider orientation="vertical" flexItem />
 
         {/* Text Formatting */}
-        <Tooltip title="Bold" enterDelay={300}>
-          <IconButton size="small" onClick={() => toggleFormat('bold')}>
-            <FormatBold sx={{ fontSize: 20 }} />
+        <Tooltip title="Bold">
+          <IconButton 
+            size="small" 
+            onClick={() => toggleFormat('bold')}
+            color={editorState.isBold ? 'primary' : 'default'}
+          >
+            <FormatBold />
           </IconButton>
         </Tooltip>
-        <Tooltip title="Italic" enterDelay={300}>
-          <IconButton size="small" onClick={() => toggleFormat('italic')}>
-            <FormatItalic sx={{ fontSize: 20 }} />
+        
+        <Tooltip title="Italic">
+          <IconButton 
+            size="small" 
+            onClick={() => toggleFormat('italic')}
+            color={editorState.isItalic ? 'primary' : 'default'}
+          >
+            <FormatItalic />
           </IconButton>
         </Tooltip>
-        <Tooltip title="Underline" enterDelay={300}>
-          <IconButton size="small" onClick={() => toggleFormat('underline')}>
-            <FormatUnderlined sx={{ fontSize: 20 }} />
+        
+        <Tooltip title="Underline">
+          <IconButton 
+            size="small" 
+            onClick={() => toggleFormat('underline')}
+            color={editorState.isUnderline ? 'primary' : 'default'}
+          >
+            <FormatUnderlined />
           </IconButton>
         </Tooltip>
 
@@ -429,7 +608,41 @@ const EditorToolbar = () => {
         <Divider orientation="vertical" flexItem />
         <ListControls />
 
+        <Divider orientation="vertical" flexItem />
         
+        <Tooltip title="Edit Header">
+          <IconButton
+            size="small"
+            onClick={handleHeaderClick}
+            color={editorState.isHeaderMode ? 'primary' : 'default'}
+          >
+            <HeaderIcon />
+          </IconButton>
+        </Tooltip>
+
+        <Tooltip title="Edit Footer">
+          <IconButton
+            size="small"
+            onClick={handleFooterClick}
+            color={editorState.isFooterMode ? 'primary' : 'default'}
+          >
+            <FooterIcon />
+          </IconButton>
+        </Tooltip>
+
+        <FormControlLabel
+          control={
+            <Switch
+              size="small"
+              checked={editorState.differentFirstPage}
+              onChange={(e) => {
+                // Implement different first page logic
+              }}
+            />
+          }
+          label="Different First Page"
+          sx={{ ml: 2 }}
+        />
 
         <Box sx={{ 
           display: 'flex', 

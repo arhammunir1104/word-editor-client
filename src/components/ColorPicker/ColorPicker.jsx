@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Box, Popover, Typography, IconButton } from '@mui/material';
 import { ChromePicker } from 'react-color';
 import { useEditorHistory } from '../../context/EditorHistoryContext';
+import { useEditor } from '../../context/EditorContext';
 
 const PRESET_COLORS = [
   '#000000', '#434343', '#666666', '#999999', '#b7b7b7', '#cccccc', '#d9d9d9', '#efefef', '#f3f3f3', '#ffffff',
@@ -11,6 +12,7 @@ const PRESET_COLORS = [
 
 const ColorPicker = ({ anchorEl, onClose, onColorSelect, recentColors = [], type = 'text' }) => {
   const { saveHistory, ActionTypes } = useEditorHistory();
+  const { changeFontColor, changeBackgroundColor } = useEditor();
   const [color, setColor] = useState('#000000');
 
   const handleColorChange = (newColor) => {
@@ -20,7 +22,11 @@ const ColorPicker = ({ anchorEl, onClose, onColorSelect, recentColors = [], type
   };
 
   const handleColorSelect = (selectedColor) => {
-    onColorSelect(selectedColor);
+    if (type === 'text') {
+      changeFontColor(selectedColor);
+    } else if (type === 'highlight') {
+      changeBackgroundColor(selectedColor);
+    }
     onClose();
   };
 

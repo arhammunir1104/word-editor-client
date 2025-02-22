@@ -19,10 +19,12 @@ export const EditorHistoryProvider = ({ children }) => {
   const [redoStack, setRedoStack] = useState([]);
   const [lastActionTime, setLastActionTime] = useState(null);
   const [lastActionType, setLastActionType] = useState(null);
+  const [lastAreaType, setLastAreaType] = useState(null);
 
   const captureState = useCallback(() => {
-    const editor = document.querySelector('[contenteditable="true"]');
-    if (!editor) return null;
+    const editor = document.querySelector('[data-content-area="true"]');
+    const header = document.querySelector('[data-header-area="true"]');
+    const footer = document.querySelector('[data-footer-area="true"]');
 
     const selection = window.getSelection();
     let selectionState = null;
@@ -41,7 +43,10 @@ export const EditorHistoryProvider = ({ children }) => {
     }
 
     return {
-      content: editor.innerHTML,
+      content: editor?.innerHTML || '',
+      header: header?.innerHTML || '',
+      footer: footer?.innerHTML || '',
+      activeArea: document.activeElement?.getAttribute('data-area-type') || 'content',
       selection: selectionState
     };
   }, []);
@@ -49,49 +54,38 @@ export const EditorHistoryProvider = ({ children }) => {
   const restoreState = useCallback((state) => {
     if (!state) return;
 
-    const editor = document.querySelector('[contenteditable="true"]');
-    if (!editor) return;
+    // Restore content for each area
+    const areas = {
+      content: document.querySelector('[data-content-area="true"]'),
+      header: document.querySelector('[data-header-area="true"]'),
+      footer: document.querySelector('[data-footer-area="true"]')
+    };
 
-    editor.innerHTML = state.content;
-
-    // Only try to restore selection if it was saved
-    if (state.selection) {
-      try {
-        const selection = window.getSelection();
-        const range = document.createRange();
-        
-        // Find the text nodes that match our saved selection
-        const findTextNode = (node, text) => {
-          if (node.nodeType === 3 && node.textContent === text) return node;
-          for (const child of node.childNodes) {
-            const result = findTextNode(child, text);
-            if (result) return result;
-          }
-          return null;
-        };
-
-        const startNode = findTextNode(editor, state.selection.startContainer);
-        const endNode = findTextNode(editor, state.selection.endContainer);
-
-        if (startNode && endNode) {
-          range.setStart(startNode, state.selection.startOffset);
-          range.setEnd(endNode, state.selection.endOffset);
-          selection.removeAllRanges();
-          selection.addRange(range);
-        }
-      } catch (error) {
-        console.error('Failed to restore selection:', error);
+    Object.entries(areas).forEach(([type, element]) => {
+      if (element && state[type]) {
+        element.innerHTML = state[type];
       }
+    });
+
+    // Restore focus to active area
+    if (state.activeArea) {
+      areas[state.activeArea]?.focus();
+    }
+
+    // Restore selection if available
+    if (state.selection) {
+      restoreSelection(state.selection);
     }
   }, []);
 
-  const saveHistory = useCallback((actionType = ActionTypes.TEXT) => {
+  const saveHistory = useCallback((actionType = ActionTypes.TEXT, areaType = 'content') => {
     const currentState = captureState();
     if (!currentState) return;
 
     const now = Date.now();
     const shouldBatch = 
       actionType === lastActionType &&
+      areaType === lastAreaType &&
       actionType === ActionTypes.TEXT &&
       lastActionTime &&
       now - lastActionTime < BATCH_WINDOW;
@@ -110,7 +104,8 @@ export const EditorHistoryProvider = ({ children }) => {
 
     setLastActionTime(now);
     setLastActionType(actionType);
-  }, [captureState, lastActionTime, lastActionType]);
+    setLastAreaType(areaType);
+  }, [captureState, lastActionTime, lastActionType, lastAreaType]);
 
   const undo = useCallback(() => {
     if (undoStack.length < 2) return; // Need at least 2 states to undo

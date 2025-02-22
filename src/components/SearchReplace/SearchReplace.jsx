@@ -1,40 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Box, 
-  IconButton, 
-  Popover, 
-  TextField, 
-  Button,
-  Typography,
-  Tabs,
-  Tab,
-  Paper
-} from '@mui/material';
-import { Search, ArrowUpward, ArrowDownward, Close } from '@mui/icons-material';
+import React, { useState } from 'react';
+import { Box, TextField, Button, Popover } from '@mui/material';
+import { useEditor } from '../../context/EditorContext';
+import { useEditorHistory } from '../../context/EditorHistoryContext';
 
-const SearchReplace = ({ onClose, anchorEl }) => {
-  const [activeTab, setActiveTab] = useState(0);
+const SearchReplace = ({ anchorEl, onClose }) => {
   const [searchText, setSearchText] = useState('');
   const [replaceText, setReplaceText] = useState('');
+  const [currentMatch, setCurrentMatch] = useState(0);
   const [matches, setMatches] = useState([]);
-  const [currentMatch, setCurrentMatch] = useState(-1);
+  
+  const { pageContents, pages } = useEditor();
+  const { saveHistory, ActionTypes } = useEditorHistory();
 
-  // Clear highlights when component unmounts or search text changes
-  useEffect(() => {
-    return () => {
-      clearHighlights();
-    };
-  }, []);
-
+  // Remove any existing highlights
   const clearHighlights = () => {
-    const content = document.querySelector('[contenteditable="true"]');
-    if (!content) return;
-
-    const highlights = Array.from(content.getElementsByClassName('search-highlight'));
+    const highlights = document.querySelectorAll('.search-highlight');
     highlights.forEach(highlight => {
       const text = highlight.textContent;
-      const textNode = document.createTextNode(text);
-      highlight.parentNode.replaceChild(textNode, highlight);
+      highlight.parentNode.replaceChild(document.createTextNode(text), highlight);
     });
   };
 
@@ -42,187 +25,169 @@ const SearchReplace = ({ onClose, anchorEl }) => {
     if (!searchText) return;
     
     clearHighlights();
-    const content = document.querySelector('[contenteditable="true"]');
-    if (!content) return;
-
-    const text = content.textContent;
-    const searchRegex = new RegExp(searchText, 'gi');
     const newMatches = [];
-    let match;
-
-    // Find all matches
-    while ((match = searchRegex.exec(text)) !== null) {
-      newMatches.push(match.index);
-    }
-
-    // Highlight matches
-    if (newMatches.length > 0) {
-      let lastIndex = 0;
-      let result = '';
+    
+    // Get all content areas
+    const pages = document.querySelectorAll('[data-content-area="true"]');
+    
+    pages.forEach(page => {
+      const pageNumber = parseInt(page.getAttribute('data-page'));
+      const content = page.textContent;  // Changed from innerHTML to textContent
+      let startIndex = 0;
       
-      newMatches.forEach((matchIndex, i) => {
-        const beforeMatch = text.substring(lastIndex, matchIndex);
-        const matchText = text.substr(matchIndex, searchText.length);
+      while (true) {
+        const index = content.toLowerCase().indexOf(searchText.toLowerCase(), startIndex);
+        if (index === -1) break;
         
-        result += beforeMatch;
-        result += `<span class="search-highlight" style="background-color: #ffeb3b">${matchText}</span>`;
-        
-        lastIndex = matchIndex + searchText.length;
-      });
-      
-      result += text.substring(lastIndex);
-      content.innerHTML = result;
-      setCurrentMatch(0);
-    }
+        newMatches.push({ 
+          pageNumber,
+          element: page,
+          index: index,
+          originalContent: content
+        });
+        startIndex = index + searchText.length;
+      }
+    });
 
     setMatches(newMatches);
+    
+    if (newMatches.length > 0) {
+      setCurrentMatch(0);
+      highlightAllMatches(newMatches);  // Changed to highlight all matches
+    }
   };
 
-  const navigateMatch = (direction) => {
-    if (matches.length === 0) return;
+  // New function to highlight all matches
+  const highlightAllMatches = (matches) => {
+    clearHighlights();
+    
+    matches.forEach(match => {
+      const content = match.originalContent;
+      let html = match.element.innerHTML;
+      
+      // Create a temporary div to handle HTML content
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = html;
+      const textContent = tempDiv.textContent;
+      
+      // Find the correct position in HTML
+      let currentIndex = 0;
+      let htmlIndex = 0;
+      
+      while (currentIndex < match.index) {
+        if (textContent[currentIndex] === html[htmlIndex]) {
+          currentIndex++;
+        }
+        htmlIndex++;
+      }
+      
+      const before = html.slice(0, htmlIndex);
+      const after = html.slice(htmlIndex + searchText.length);
+      
+      match.element.innerHTML = `${before}<span class="search-highlight" style="background-color: yellow !important; color: black !important;">${searchText}</span>${after}`;
+    });
 
-    const newMatch = direction === 'next'
-      ? (currentMatch + 1) % matches.length
-      : (currentMatch - 1 + matches.length) % matches.length;
-
-    setCurrentMatch(newMatch);
-
-    // Scroll to the current match
-    const highlights = document.getElementsByClassName('search-highlight');
-    if (highlights[newMatch]) {
-      highlights[newMatch].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Scroll to current match
+    const currentHighlight = matches[currentMatch]?.element.querySelector('.search-highlight');
+    if (currentHighlight) {
+      currentHighlight.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center'
+      });
     }
   };
 
   const handleReplace = () => {
-    if (matches.length === 0 || currentMatch === -1) return;
-
-    const content = document.querySelector('[contenteditable="true"]');
-    if (!content) return;
-
-    // Store the entire content for undo
-    const originalContent = content.innerHTML;
+    if (currentMatch === -1 || !matches.length) return;
     
-    try {
-      // Get all highlights
-      const highlights = Array.from(content.getElementsByClassName('search-highlight'));
-      if (!highlights[currentMatch]) return;
+    const match = matches[currentMatch];
+    if (!match || !match.element) return;
 
-      // Focus the editor
-      content.focus();
+    // Capture state before replacement
+    saveHistory(ActionTypes.TEXT, match.element.getAttribute('data-area-type') || 'content');
 
-      // Select the text to be replaced
-      const selection = window.getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(highlights[currentMatch]);
-      selection.removeAllRanges();
-      selection.addRange(range);
+    const content = match.originalContent;
+    const newContent = 
+      content.slice(0, match.index) + 
+      replaceText + 
+      content.slice(match.index + searchText.length);
 
-      // Perform the replacement
-      document.execCommand('insertText', false, replaceText);
+    // Update the content in the editor
+    match.element.innerHTML = newContent;
 
-      // Update matches and current match
-      const newMatches = [...matches];
-      newMatches.splice(currentMatch, 1);
-      
-      // Clear all existing highlights
-      clearHighlights();
+    // Trigger the onInput event to update the state
+    const inputEvent = new Event('input', { bubbles: true });
+    match.element.dispatchEvent(inputEvent);
 
-      // Re-highlight remaining matches
-      const text = content.textContent;
-      const searchRegex = new RegExp(searchText, 'gi');
-      const updatedMatches = [];
-      let match;
-
-      while ((match = searchRegex.exec(text)) !== null) {
-        updatedMatches.push(match.index);
-      }
-
-      setMatches(updatedMatches);
-      
-      if (updatedMatches.length > 0) {
-        // Move to next match if available, otherwise stay at current position
-        const nextMatch = Math.min(currentMatch, updatedMatches.length - 1);
-        setCurrentMatch(nextMatch);
-        
-        // Re-highlight all matches
-        let lastIndex = 0;
-        let result = '';
-        
-        updatedMatches.forEach((matchIndex, i) => {
-          const beforeMatch = text.substring(lastIndex, matchIndex);
-          const matchText = text.substr(matchIndex, searchText.length);
-          
-          result += beforeMatch;
-          result += `<span class="search-highlight" style="background-color: #ffeb3b">${matchText}</span>`;
-          
-          lastIndex = matchIndex + searchText.length;
-        });
-        
-        result += text.substring(lastIndex);
-        
-        // Create an undo point
-        const selection = window.getSelection();
-        const range = document.createRange();
-        range.selectNodeContents(content);
-        selection.removeAllRanges();
-        selection.addRange(range);
-        
-        document.execCommand('insertHTML', false, result);
-      } else {
-        setCurrentMatch(-1);
-      }
-    } catch (error) {
-      console.error('Replace error:', error);
-      // Restore original content if something goes wrong
-      content.innerHTML = originalContent;
-    }
+    // Update matches after replacement
+    handleSearch();
   };
 
   const handleReplaceAll = () => {
-    const content = document.querySelector('[contenteditable="true"]');
-    if (!content || !searchText) return;
+    if (!matches.length) return;
 
-    try {
-      // Store original state
-      const originalContent = content.innerHTML;
+    // Capture state before replacement
+    saveHistory(ActionTypes.TEXT, 'content');
 
-      // Focus the editor
-      content.focus();
-
-      // Select all content
-      const selection = window.getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(content);
-      selection.removeAllRanges();
-      selection.addRange(range);
-
-      // Get the text content
-      const text = content.textContent;
+    // Get all content areas
+    const pages = document.querySelectorAll('[data-content-area="true"]');
+    let changesApplied = false;
+    
+    pages.forEach(page => {
+      let content = page.textContent;
+      const searchRegex = new RegExp(searchText, 'gi');
+      const newContent = content.replace(searchRegex, replaceText);
       
-      // Create undo point
-      document.execCommand('insertText', false, text);
+      if (content !== newContent) {
+        changesApplied = true;
+        page.textContent = newContent;
+        
+        // Trigger input event to update state
+        const inputEvent = new Event('input', { bubbles: true });
+        page.dispatchEvent(inputEvent);
+      }
+    });
 
-      // Perform replacement
-      const newContent = text.replace(new RegExp(searchText, 'g'), replaceText);
-      
-      // Apply the change
-      document.execCommand('insertText', false, newContent);
+    // If any changes were made, save to history
+    if (changesApplied) {
+      saveHistory(ActionTypes.TEXT, 'content');
+    }
 
-      // Clear search state
-      clearHighlights();
-      setMatches([]);
-      setCurrentMatch(-1);
-    } catch (error) {
-      console.error('Replace all error:', error);
-      // Restore original content if something goes wrong
-      content.innerHTML = originalContent;
+    // Clear matches and highlights
+    setMatches([]);
+    setCurrentMatch(-1);
+    clearHighlights();
+  };
+
+  const handleNext = () => {
+    if (currentMatch < matches.length - 1) {
+      setCurrentMatch(currentMatch + 1);
+      highlightAllMatches(matches.slice(currentMatch + 1));
     }
   };
 
-  const trackContentChange = () => {
-    // Implementation of trackContentChange function
+  const handlePrevious = () => {
+    if (currentMatch > 0) {
+      setCurrentMatch(currentMatch - 1);
+      highlightAllMatches(matches.slice(0, currentMatch));
+    }
   };
+
+  // Update the CSS style in useEffect
+  React.useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      .search-highlight {
+        background-color: yellow !important;
+        color: black !important;
+        padding: 2px 0;
+        margin: 0;
+        display: inline;
+      }
+    `;
+    document.head.appendChild(style);
+    return () => document.head.removeChild(style);
+  }, []);
 
   return (
     <Popover
@@ -234,89 +199,47 @@ const SearchReplace = ({ onClose, anchorEl }) => {
         horizontal: 'left',
       }}
     >
-      <Paper sx={{ width: 300 }}>
-        <Tabs
-          value={activeTab}
-          onChange={(e, newValue) => setActiveTab(newValue)}
-          sx={{ borderBottom: 1, borderColor: 'divider' }}
-        >
-          <Tab label="Search" />
-          <Tab label="Replace" />
-        </Tabs>
-
-        <Box sx={{ p: 2 }}>
-          <Box sx={{ mb: 2 }}>
-            <TextField
-              size="small"
-              placeholder="Search"
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              fullWidth
-              sx={{ mb: 1 }}
-            />
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-              <Button
-                size="small"
-                variant="contained"
-                onClick={handleSearch}
-                disabled={!searchText}
-              >
-                Search
-              </Button>
-              <Typography variant="caption">
-                {matches.length > 0 ? `${currentMatch + 1} of ${matches.length}` : 'No matches'}
-              </Typography>
-              <Box sx={{ ml: 'auto' }}>
-                <IconButton
-                  size="small"
-                  onClick={() => navigateMatch('prev')}
-                  disabled={matches.length === 0}
-                >
-                  <ArrowUpward fontSize="small" />
-                </IconButton>
-                <IconButton
-                  size="small"
-                  onClick={() => navigateMatch('next')}
-                  disabled={matches.length === 0}
-                >
-                  <ArrowDownward fontSize="small" />
-                </IconButton>
-              </Box>
-            </Box>
-          </Box>
-
-          {activeTab === 1 && (
-            <Box sx={{ mt: 2 }}>
-              <TextField
-                size="small"
-                placeholder="Replace with"
-                value={replaceText}
-                onChange={(e) => setReplaceText(e.target.value)}
-                fullWidth
-                sx={{ mb: 1 }}
-              />
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <Button
-                  size="small"
-                  variant="contained"
-                  onClick={handleReplace}
-                  disabled={matches.length === 0}
-                >
-                  Replace
-                </Button>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={handleReplaceAll}
-                  disabled={!searchText}
-                >
-                  Replace All
-                </Button>
-              </Box>
-            </Box>
-          )}
+      <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <TextField
+          size="small"
+          label="Find"
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleSearch();
+          }}
+        />
+        <TextField
+          size="small"
+          label="Replace with"
+          value={replaceText}
+          onChange={(e) => setReplaceText(e.target.value)}
+        />
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button size="small" onClick={handleSearch}>
+            Find
+          </Button>
+          <Button size="small" onClick={handlePrevious} disabled={currentMatch <= 0}>
+            Previous
+          </Button>
+          <Button size="small" onClick={handleNext} disabled={currentMatch >= matches.length - 1}>
+            Next
+          </Button>
         </Box>
-      </Paper>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button size="small" onClick={handleReplace} disabled={matches.length === 0}>
+            Replace
+          </Button>
+          <Button size="small" onClick={handleReplaceAll} disabled={matches.length === 0}>
+            Replace All
+          </Button>
+        </Box>
+        {matches.length > 0 && (
+          <Box sx={{ textAlign: 'center', fontSize: '0.875rem' }}>
+            {currentMatch + 1} of {matches.length} matches
+          </Box>
+        )}
+      </Box>
     </Popover>
   );
 };
