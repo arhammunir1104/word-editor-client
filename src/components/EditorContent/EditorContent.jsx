@@ -196,16 +196,16 @@ const EditorContent = () => {
   const handleHeaderChange = (e, pageNumber) => {
     const newContent = e.target.textContent;
     setHeaders(prev => ({
-      ...prev,
-      [pageNumber]: newContent
+      [pageNumber]: newContent,
+      ...prev
     }));
   };
 
   const handleFooterChange = (e, pageNumber) => {
     const newContent = e.target.textContent;
     setFooters(prev => ({
-      ...prev,
-      [pageNumber]: newContent
+      [pageNumber]: newContent,
+      ...prev
     }));
   };
 
